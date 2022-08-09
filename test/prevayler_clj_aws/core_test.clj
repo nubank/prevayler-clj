@@ -2,7 +2,7 @@
   (:require [prevayler-clj-aws.core :as core]
             [prevayler-clj-aws.util :as util]
             [prevayler-clj.prevayler4 :as prevayler]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is testing]]
             [clj-test-containers.core :as tc]
             [com.gfredericks.test.chuck.generators :as genc]
             [clojure.test.check.generators :as gen]
@@ -10,21 +10,15 @@
             [meta-merge.core :refer [meta-merge]]
             [matcher-combinators.test :refer [match?]]))
 
-(def ^:dynamic *aws-cli-opts*)
-
-(defn local-stack-fixture [f]
-  (let [container (-> (tc/create {:image-name "localstack/localstack"
-                                  :exposed-ports [4566]
-                                  :env-vars {"SERVICES" "dynamodb,s3"}})
-                      (tc/start!))]
-    (binding [*aws-cli-opts* {:endpoint-override {:protocol "http"
-                                                  :hostname "localhost"
-                                                  :port (get-in container [:mapped-ports 4566])}}]
-      *aws-cli-opts*
-      (f))
-    (tc/stop! container)))
-
-(use-fixtures :once local-stack-fixture)
+(defonce aws-cli-opts
+  (memoize
+   #(let [{:keys [mapped-ports]} (-> (tc/create {:image-name "localstack/localstack"
+                                                 :exposed-ports [4566]
+                                                 :env-vars {"SERVICES" "dynamodb,s3"}})
+                                     (tc/start!))]
+      {:endpoint-override {:protocol "http"
+                           :hostname "localhost"
+                           :port (get mapped-ports 4566)}})))
 
 (defn gen-name []
   (gen/generate (genc/string-from-regex #"[a-z0-9]{5,20}")))
@@ -32,8 +26,8 @@
 (defn gen-opts [& {:as opts}]
   (let [s3-bucket (gen-name)
         dynamodb-table (gen-name)
-        s3-cli (aws/client (merge {:api :s3} *aws-cli-opts*))
-        dynamodb-cli (aws/client (merge {:api :dynamodb} *aws-cli-opts*))]
+        s3-cli (aws/client (merge {:api :s3} (aws-cli-opts)))
+        dynamodb-cli (aws/client (merge {:api :dynamodb} (aws-cli-opts)))]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"
@@ -62,9 +56,9 @@
 
 (deftest prevayler!-test
   (testing "default timestamp-fn is system clock"
-    (let [prevayler (prev! (gen-opts))]
-      (let [t0 (- (System/currentTimeMillis) 1)]
-        (is (> (prevayler/timestamp prevayler) t0)))))
+    (let [prevayler (prev! (gen-opts))
+          t0 (- (System/currentTimeMillis) 1)]
+      (is (> (prevayler/timestamp prevayler) t0))))
   (testing "can override timestamp-fn"
     (let [prevayler (prev! (gen-opts :timestamp-fn (constantly :timestamp)))]
       (is (= :timestamp

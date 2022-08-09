@@ -10,15 +10,15 @@
             [meta-merge.core :refer [meta-merge]]
             [matcher-combinators.test :refer [match?]]))
 
-(defonce aws-cli-opts
+(defonce aws-endpoint
   (memoize
    #(let [{:keys [mapped-ports]} (-> (tc/create {:image-name "localstack/localstack"
                                                  :exposed-ports [4566]
                                                  :env-vars {"SERVICES" "dynamodb,s3"}})
                                      (tc/start!))]
-      {:endpoint-override {:protocol "http"
-                           :hostname "localhost"
-                           :port (get mapped-ports 4566)}})))
+      {:protocol "http"
+       :hostname "localhost"
+       :port (get mapped-ports 4566)})))
 
 (defn gen-name []
   (gen/generate (genc/string-from-regex #"[a-z0-9]{5,20}")))
@@ -26,8 +26,8 @@
 (defn gen-opts [& {:as opts}]
   (let [s3-bucket (gen-name)
         dynamodb-table (gen-name)
-        s3-cli (aws/client (merge {:api :s3} (aws-cli-opts)))
-        dynamodb-cli (aws/client (merge {:api :dynamodb} (aws-cli-opts)))]
+        s3-cli (aws/client {:api :s3 :endpoint-override (aws-endpoint)})
+        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override (aws-endpoint)})]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"

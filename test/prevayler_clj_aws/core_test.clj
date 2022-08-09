@@ -105,11 +105,8 @@
           _ (prevayler/handle! prev1 :previous-event)
           prev2 (prev! opts)
           _ (prevayler/handle! prev2 :latest-event)
-          prev3 (prev! (assoc opts :business-fn (fn [state event _]
-                                                  (if (= :previous-event event)
-                                                    (throw (ex-info "boom" {}))
-                                                    (conj state event)))))]
-      (is (= [:previous-event :latest-event] @prev3))))
+          prev3 (prev! (assoc opts :business-fn (fn [state event _] {:state state :event event})))]
+      (is (= {:state [:previous-event] :event :latest-event} @prev3))))
   (testing "exception in event handler does not affect state"
     (let [opts (gen-opts :initial-state :initial-state :business-fn (fn [_ _ _]
                                                                       (throw (ex-info "boom" {}))))

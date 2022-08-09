@@ -44,23 +44,26 @@
                                         :Key snapshot-path
                                         :Body (marshal snapshot)}}))
 
-; TODO follow Last Evaluated Key
-(defn- read-items [client table partkey]
-  (try
-    (->> (get-in
-          (util/aws-invoke client {:op :Query
-                                   :request {:TableName table
-                                             :KeyConditionExpression "partkey = :partkey"
-                                             :ExpressionAttributeValues {":partkey" {:S (str partkey)}}}})
-          [:Items])
-         (map (comp :B :content))
-         (map unmarshal))
-    (catch Exception e
-      (.printStackTrace e)
-      [])))
+(defn- read-items [client table partkey page-size]
+  (letfn [(read-page [exclusive-start-key]
+            (let [result (util/aws-invoke
+                          client
+                          {:op :Query
+                           :request {:TableName table
+                                     :KeyConditionExpression "partkey = :partkey"
+                                     :ExpressionAttributeValues {":partkey" {:S (str partkey)}}
+                                     :Limit page-size
+                                     :ExclusiveStartKey exclusive-start-key}})
+                  {items :Items last-key :LastEvaluatedKey} result]
+              (lazy-cat
+               (map (comp unmarshal :B :content) items)
+               (if (seq last-key)
+                 (read-page last-key)
+                 []))))]
+    (read-page {:order {:N "0"} :partkey {:S (str partkey)}})))
 
-(defn- restore-events! [handler state-atom client table partkey]
-  (let [items (read-items client table partkey)]
+(defn- restore-events! [handler state-atom client table partkey page-size]
+  (let [items (read-items client table partkey page-size)]
     (doseq [[timestamp event] items]
       (swap! state-atom handler event timestamp))))
 
@@ -82,9 +85,10 @@
         {state :state old-partkey :partkey} (read-snapshot s3-cli bucket snapshot-path)
         state-atom (atom (or state initial-state))
         new-partkey (inc old-partkey)
-        order-counter-atom (atom 0)]
+        order-counter-atom (atom 0)
+        page-size (or (:page-size aws-opts) 1000)]
 
-    (restore-events! business-fn state-atom dynamodb-cli table old-partkey)
+    (restore-events! business-fn state-atom dynamodb-cli table old-partkey page-size)
 
     ; since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
     ; and restore events from the previous partkey

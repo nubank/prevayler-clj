@@ -107,6 +107,15 @@
           _ (prevayler/handle! prev2 :latest-event)
           prev3 (prev! (assoc opts :business-fn (fn [state event _] {:state state :event event})))]
       (is (= {:state [:previous-event] :event :latest-event} @prev3))))
+  (testing "replay all events since last restart"
+    (let [opts (gen-opts :initial-state []
+                         :business-fn (fn [state event _] (conj state event))
+                         :aws-opts {:page-size 1})
+          prev1 (prev! opts)
+          _ (prevayler/handle! prev1 1)
+          _ (prevayler/handle! prev1 2)
+          prev2 (prev! opts)]
+      (is (= [1 2] @prev2))))
   (testing "exception in event handler does not affect state"
     (let [opts (gen-opts :initial-state :initial-state :business-fn (fn [_ _ _]
                                                                       (throw (ex-info "boom" {}))))

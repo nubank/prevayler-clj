@@ -51,7 +51,7 @@
                           {:op :Query
                            :request {:TableName table
                                      :KeyConditionExpression "partkey = :partkey"
-                                     :ExpressionAttributeValues {":partkey" {:S (str partkey)}}
+                                     :ExpressionAttributeValues {":partkey" {:N (str partkey)}}
                                      :Limit page-size
                                      :ExclusiveStartKey exclusive-start-key}})
                   {items :Items last-key :LastEvaluatedKey} result]
@@ -60,7 +60,7 @@
                (if (seq last-key)
                  (read-page last-key)
                  []))))]
-    (read-page {:order {:N "0"} :partkey {:S (str partkey)}})))
+    (read-page {:order {:N "0"} :partkey {:N (str partkey)}})))
 
 (defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
   (let [items (read-items dynamo-cli table partkey page-size)]
@@ -70,7 +70,7 @@
 (defn- write-event! [dynamo-cli table partkey order event]
   (util/aws-invoke dynamo-cli {:op :PutItem
                                :request {:TableName table
-                                         :Item {:partkey {:S (str partkey)}
+                                         :Item {:partkey {:N (str partkey)}
                                                 :order {:N (str order)}
                                                 :content {:B (marshal event)}}}}))
 

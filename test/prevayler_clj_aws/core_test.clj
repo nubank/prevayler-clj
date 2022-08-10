@@ -31,7 +31,7 @@
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"
-                                                                                      :AttributeType "S"}
+                                                                                      :AttributeType "N"}
                                                                                      {:AttributeName "order"
                                                                                       :AttributeType "N"}]
                                                               :KeySchema [{:AttributeName "partkey"

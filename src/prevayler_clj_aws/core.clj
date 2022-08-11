@@ -4,7 +4,8 @@
    [clojure.java.io :as io]
    [cognitect.aws.client.api :as aws]
    [prevayler-clj.prevayler4 :refer [Prevayler]]
-   [taoensso.nippy :as nippy])
+   [taoensso.nippy :as nippy]
+   [prevayler-clj-aws.util :as util])
   (:import
    [clojure.lang IDeref]
    [java.io ByteArrayOutputStream Closeable]))
@@ -21,79 +22,76 @@
       base64/decode-bytes
       nippy/thaw))
 
-(defn aws-invoke
-  [client op-map]
-  (let [result (aws/invoke client op-map)]
-    (if (:cognitect.anomalies/category result)
-      (throw (ex-info (:message result) result))
-      result)))
-
-(defn- snapshot-exists? [s3-client bucket snapshot-path]
-  (->> (aws-invoke s3-client {:op :ListObjects
-                              :request {:Bucket bucket
-                                        :Prefix snapshot-path}})
+(defn- snapshot-exists? [s3-cli bucket snapshot-path]
+  (->> (util/aws-invoke s3-cli {:op :ListObjects
+                                :request {:Bucket bucket
+                                          :Prefix snapshot-path}})
        :Contents
        (some #(= snapshot-path (:Key %)))))
 
-(defn- read-snapshot [s3-client bucket snapshot-path]
-  (if (snapshot-exists? s3-client bucket snapshot-path)
-    (-> (aws-invoke s3-client {:op :GetObject
-                               :request {:Bucket bucket
-                                         :Key snapshot-path}})
+(defn- read-snapshot [s3-cli bucket snapshot-path]
+  (if (snapshot-exists? s3-cli bucket snapshot-path)
+    (-> (util/aws-invoke s3-cli {:op :GetObject
+                                 :request {:Bucket bucket
+                                           :Key snapshot-path}})
         :Body
         unmarshal)
     {:partkey 0}))
 
-(defn- save-snapshot! [s3-client bucket snapshot-path snapshot]
-  (aws-invoke s3-client {:op :PutObject
-                         :request {:Bucket bucket
-                                   :Key snapshot-path
-                                   :Body (marshal snapshot)}}))
+(defn- save-snapshot! [s3-cli bucket snapshot-path snapshot]
+  (util/aws-invoke s3-cli {:op :PutObject
+                           :request {:Bucket bucket
+                                     :Key snapshot-path
+                                     :Body (marshal snapshot)}}))
 
-; TODO follow Last Evaluated Key
-(defn- read-items [client table partkey]
-  (try
-    (->> (get-in
-          (aws-invoke client {:op :Query
-                              :request {:TableName table
-                                        :KeyConditionExpression "partkey = :partkey"
-                                        :ExpressionAttributeValues {":partkey" {:S (str partkey)}}}})
-          [:Items])
-         (map (comp :B :content))
-         (map unmarshal))
-    (catch Exception e
-      (.printStackTrace e)
-      [])))
+(defn- read-items [dynamo-cli table partkey page-size]
+  (letfn [(read-page [exclusive-start-key]
+            (let [result (util/aws-invoke
+                          dynamo-cli
+                          {:op :Query
+                           :request {:TableName table
+                                     :KeyConditionExpression "partkey = :partkey"
+                                     :ExpressionAttributeValues {":partkey" {:N (str partkey)}}
+                                     :Limit page-size
+                                     :ExclusiveStartKey exclusive-start-key}})
+                  {items :Items last-key :LastEvaluatedKey} result]
+              (lazy-cat
+               (map (comp unmarshal :B :content) items)
+               (if (seq last-key)
+                 (read-page last-key)
+                 []))))]
+    (read-page {:order {:N "0"} :partkey {:N (str partkey)}})))
 
-(defn- restore-events! [handler state-atom client table partkey]
-  (let [items (read-items client table partkey)]
+(defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
+  (let [items (read-items dynamo-cli table partkey page-size)]
     (doseq [[timestamp event] items]
       (swap! state-atom handler event timestamp))))
 
-(defn- write-event! [client table partkey [timestamp :as value]]
-  (aws-invoke client {:op :PutItem
-                      :request {:TableName table
-                                :Item {:partkey {:S (str partkey)}
-                                       :timestamp {:N (str timestamp)}
-                                       :content {:B (marshal value)}}}}))
+(defn- write-event! [dynamo-cli table partkey order event]
+  (util/aws-invoke dynamo-cli {:op :PutItem
+                               :request {:TableName table
+                                         :Item {:partkey {:N (str partkey)}
+                                                :order {:N (str order)}
+                                                :content {:B (marshal event)}}}}))
 
 (defn prevayler! [{:keys [initial-state business-fn timestamp-fn aws-opts]
                    :or {initial-state {}
                         timestamp-fn #(System/currentTimeMillis)}}]
-  (let [client (aws/client (merge (:aws-cli-opts aws-opts) {:api :dynamodb}))
-        s3-client (aws/client (merge (:aws-cli-opts aws-opts) {:api :s3}))
-        table (:dynamodb-table aws-opts)
-        snapshot-path (or (:snapshot-path aws-opts) "snapshot")
-        bucket (:s3-bucket aws-opts)
-        {state :state old-partkey :partkey} (read-snapshot s3-client bucket snapshot-path)
+  (let [{:keys [dynamodb-client s3-client dynamodb-table snapshot-path s3-bucket page-size]
+         :or {dynamodb-client (aws/client {:api :dynamodb})
+              s3-client (aws/client {:api :s3})
+              snapshot-path "snapshot"
+              page-size 1000}} aws-opts
+        {state :state old-partkey :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
         state-atom (atom (or state initial-state))
-        new-partkey (inc old-partkey)]
+        new-partkey (inc old-partkey)
+        order-atom (atom 0)]
 
-    (restore-events! business-fn state-atom client table old-partkey)
+    (restore-events! dynamodb-client business-fn state-atom dynamodb-table old-partkey page-size)
 
     ; since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
     ; and restore events from the previous partkey
-    (save-snapshot! s3-client bucket snapshot-path {:state @state-atom :partkey new-partkey})
+    (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom :partkey new-partkey})
 
     (reify
       Prevayler
@@ -101,10 +99,10 @@
         (locking this ; (I)solation: strict serializability.
           (let [timestamp (timestamp-fn)
                 new-state (business-fn @state-atom event timestamp)] ; (C)onsistency: must be guaranteed by the handler. The event won't be journalled when the handler throws an exception.)
-            (write-event! client table new-partkey [timestamp event]) ; (D)urability
+            (write-event! dynamodb-client dynamodb-table new-partkey (swap! order-atom inc) [timestamp event]) ; (D)urability
             (reset! state-atom new-state)))) ; (A)tomicity
       (timestamp [_] (timestamp-fn))
 
       IDeref (deref [_] @state-atom)
 
-      Closeable (close [_] (aws/stop client)))))
+      Closeable (close [_] (aws/stop dynamodb-client)))))

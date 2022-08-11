@@ -74,9 +74,22 @@
                                                 :order {:N (str order)}
                                                 :content {:B (marshal event)}}}}))
 
-(defn prevayler! [{:keys [initial-state business-fn timestamp-fn aws-opts]
-                   :or {initial-state {}
-                        timestamp-fn #(System/currentTimeMillis)}}]
+(defn prevayler!
+  "Creates a new prevayler instance.
+   Receives a map with the following attributes:
+
+   `:initial-state` (optional): the initial state when creating the instance for the first time, default is an empty map
+   `:business-fn`: a function that receives current state, event and timestamp and returns the next state
+   `:aws-opts`: a map as describe below
+
+   `:aws-opts`: is a map with the following attributes:
+
+   `:dynamodb-table`: the name of the dynamodb table where the journal will be stored
+   `:s3-bucket`: the name of the bucket where the snapshot will be stored
+   `:snapshot-path` (optional): the path inside the s3-bucket where the snapshot will be stored, default is \"snapshot\""
+  [{:keys [initial-state business-fn timestamp-fn aws-opts]
+    :or {initial-state {}
+         timestamp-fn #(System/currentTimeMillis)}}]
   (let [{:keys [dynamodb-client s3-client dynamodb-table snapshot-path s3-bucket page-size]
          :or {dynamodb-client (aws/client {:api :dynamodb})
               s3-client (aws/client {:api :s3})

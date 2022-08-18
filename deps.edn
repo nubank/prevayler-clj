@@ -9,6 +9,8 @@
                                org.clojure/test.check {:mvn/version "1.1.1"}
                                com.gfredericks/test.chuck {:mvn/version "0.2.13"}
                                meta-merge/meta-merge {:mvn/version "1.0.0"}
-                               nubank/matcher-combinators {:mvn/version "3.5.0"}}}
+                               nubank/matcher-combinators {:mvn/version "3.5.0"}
+                               org.slf4j/slf4j-api {:mvn/version "1.6.1"}
+                               org.slf4j/slf4j-simple {:mvn/version "1.6.1"}}}
            :test-runner {:main-opts ["-m" "kaocha.runner"]
                          :extra-deps {lambdaisland/kaocha {:mvn/version "1.69.1069"}}}}}

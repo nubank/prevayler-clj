@@ -12,12 +12,13 @@
 
 (defonce localstack-port
   (memoize
-   #(or (when-let [port-str (System/getenv "LOCALSTACK_PORT")] (Integer/parseInt port-str))
-        (let [{:keys [mapped-ports]} (-> (tc/create {:image-name "localstack/localstack"
-                                                     :exposed-ports [4566]
-                                                     :env-vars {"SERVICES" "dynamodb,s3"}})
-                                         (tc/start!))]
-          (get mapped-ports 4566)))))
+   #(or (some-> (System/getenv "LOCALSTACK_PORT") (Integer/parseInt))
+        (-> (tc/create {:image-name "localstack/localstack"
+                        :exposed-ports [4566]
+                        :env-vars {"SERVICES" "dynamodb,s3"}})
+            (tc/start!)
+            :mapped-ports
+            (get 4566)))))
 
 (defn gen-name []
   (gen/generate (genc/string-from-regex #"[a-z0-9]{5,20}")))

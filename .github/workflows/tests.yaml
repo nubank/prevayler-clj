@@ -1,0 +1,21 @@
+name: Tests
+on: [push]
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    container: clojure:temurin-17-tools-deps-alpine
+    env:
+      LOCALSTACK_HOST: localstack
+      LOCALSTACK_PORT: 4566
+    services:
+      localstack:
+        image: localstack/localstack
+        options: >-
+          --health-cmd "awslocal dynamodb list-tables && awslocal s3 ls"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v1
+      - name: Run tests
+        run: clojure -M:test:test-runner

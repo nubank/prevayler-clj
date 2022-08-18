@@ -26,7 +26,8 @@
 (defn gen-opts [& {:as opts}]
   (let [s3-bucket (gen-name)
         dynamodb-table (gen-name)
-        endpoint-override {:protocol "http" :hostname "localhost" :port (localstack-port)}
+        hostname (or (System/getenv "LOCALSTACK_HOST") "localhost")
+        endpoint-override {:protocol "http" :hostname hostname :port (localstack-port)}
         s3-cli (aws/client {:api :s3 :endpoint-override endpoint-override})
         dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override})]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})

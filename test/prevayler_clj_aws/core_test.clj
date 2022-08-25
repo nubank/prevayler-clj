@@ -14,8 +14,7 @@
   (memoize
    #(or (some-> (System/getenv "LOCALSTACK_PORT") (Integer/parseInt))
         (-> (tc/create {:image-name "localstack/localstack"
-                        :exposed-ports [4566]
-                        :env-vars {"SERVICES" "dynamodb,s3"}})
+                        :exposed-ports [4566]})
             (tc/start!)
             :mapped-ports
             (get 4566)))))

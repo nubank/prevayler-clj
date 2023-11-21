@@ -97,12 +97,12 @@
   (testing "only replay events since last restart"
     (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
           prev1 (prev! opts)
-          _ (prevayler/handle! prev1 :previous-event)
+          _ (prevayler/handle! prev1 1)
           prev2 (prev! opts)
-          _ (prevayler/handle! prev2 :latest-event)
-          prev3 (prev! (assoc opts :business-fn (fn [state event _] {:state state :event event})))]
-      (is (= {:state [:previous-event] :event :latest-event} @prev3))))
-  (testing "replay all events since last restart"
+          _ (prevayler/handle! prev2 2)
+          prev3 (prev! opts)]
+      (is (= [1 2] @prev3))))
+  (testing "replay more than one page"
     (let [opts (gen-opts :initial-state []
                          :business-fn (fn [state event _] (conj state event))
                          :aws-opts {:page-size 1})

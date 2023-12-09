@@ -116,7 +116,7 @@
         (locking this                                       ; (I)solation: strict serializability.
           (let [current-state @state-atom
                 timestamp (timestamp-fn)
-                new-state (business-fn @state-atom event timestamp)] ; (C)onsistency: must be guaranteed by the handler. The event won't be journalled when the handler throws an exception.)
+                new-state (business-fn current-state event timestamp)] ; (C)onsistency: must be guaranteed by the handler. The event won't be journalled when the handler throws an exception.)
             (when-not (identical? new-state current-state)
               (write-event! dynamodb-client dynamodb-table new-partkey
                             (swap! order-atom inc)

@@ -114,12 +114,14 @@
       Prevayler
       (handle! [this event]
         (locking this                                       ; (I)solation: strict serializability.
-          (let [timestamp (timestamp-fn)
+          (let [current-state @state-atom
+                timestamp (timestamp-fn)
                 new-state (business-fn @state-atom event timestamp)] ; (C)onsistency: must be guaranteed by the handler. The event won't be journalled when the handler throws an exception.)
-            (write-event! dynamodb-client dynamodb-table new-partkey
-                          (swap! order-atom inc)
-                          [timestamp event (hash new-state)]) ; (D)urability
-            (reset! state-atom new-state))))                ; (A)tomicity
+            (when-not (identical? new-state current-state)
+              (write-event! dynamodb-client dynamodb-table new-partkey
+                            (swap! order-atom inc)
+                            [timestamp event (hash new-state)]) ; (D)urability
+              (reset! state-atom new-state)))))                ; (A)tomicity
       (timestamp [_] (timestamp-fn))
 
       IDeref (deref [_] @state-atom)

@@ -46,7 +46,8 @@
 
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]
-            (let [result (util/aws-invoke
+            (let [_ (println "Reading page" exclusive-start-key)
+                  result (util/aws-invoke
                            dynamo-cli
                            {:op      :Query
                             :request {:TableName                 table
@@ -54,7 +55,9 @@
                                       :ExpressionAttributeValues {":partkey" {:N (str partkey)}}
                                       :Limit                     page-size
                                       :ExclusiveStartKey         exclusive-start-key}})
-                  {items :Items last-key :LastEvaluatedKey} result]
+                  {items :Items last-key :LastEvaluatedKey} result
+                  _ (println "Read" (count items) "items. last-key:" last-key)]
+
               (lazy-cat
                 (map (comp unmarshal :B :content) items)
                 (if (seq last-key)

@@ -106,11 +106,14 @@
         new-partkey (inc old-partkey)
         order-atom (atom 0)]
 
+    (println "Restoring events...")
     (restore-events! dynamodb-client business-fn state-atom dynamodb-table old-partkey page-size)
+    (println "Restoring events done.")
 
     ; since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
     ; and restore events from the previous partkey
     (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom :partkey new-partkey})
+    (println "Saving snapshot done.")
 
     (reify
       Prevayler

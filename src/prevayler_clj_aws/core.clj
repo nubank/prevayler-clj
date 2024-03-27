@@ -99,7 +99,9 @@
                 s3-client       (aws/client {:api :s3})
                 snapshot-path   "snapshot"
                 page-size       1000}} aws-opts
+        _ (println "Reading snapshot bucket...")
         {state :state old-partkey :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
+        _ (println "Reading snapshot bucket done.")
         state-atom (atom (or state initial-state))
         new-partkey (inc old-partkey)
         order-atom (atom 0)]

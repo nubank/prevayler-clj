@@ -15,30 +15,12 @@
       base64/encode-bytes
       String.))
 
-(defn- tap-count [^bytes ba]
-  (println "Length:" (count ba))
-  ba)
-
-(def previous-time (atom (System/currentTimeMillis)))
-(defn- tap-millis [v msg]
-  (let [now (System/currentTimeMillis)
-        delta (- now @previous-time)]
-    (reset! previous-time now)
-    (println msg delta "ms"))
-  v)
-
-
 (defn- unmarshal [in]
   (-> (with-open [out (ByteArrayOutputStream.)]
         (io/copy in out)
         (.toByteArray out))
-      (tap-millis "Read inputStream")
-      tap-count
       base64/decode-bytes
-      (tap-millis "Decoded")
-      nippy/thaw
-      (tap-millis "Thawed")
-      ))
+      nippy/thaw))
 
 (defn- snapshot-exists? [s3-cli bucket snapshot-path]
   (->> (util/aws-invoke s3-cli {:op      :ListObjects
@@ -62,10 +44,6 @@
                                      :Key    snapshot-path
                                      :Body   (marshal snapshot)}}))
 
-(defn- tap [v]
-  (println v)
-  v)
-
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]
             (let [_ (println "Reading page" exclusive-start-key)
@@ -81,7 +59,7 @@
                   _ (println "Read" (count items) "items. last-key:" last-key)]
 
               (lazy-cat
-                (map (comp unmarshal :B :content tap #(tap-millis % "Item consumed by map")) items)
+                (map (comp unmarshal :B :content) items)
                 (if (seq last-key)
                   (read-page last-key)
                   []))))]
@@ -90,9 +68,10 @@
 (defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
   (let [items (read-items dynamo-cli table partkey page-size)]
     (doseq [[timestamp event expected-state-hash] items]
-      (let [_ (tap-millis nil "Before handler")
-            state (swap! state-atom handler event timestamp)
-            _ (tap-millis nil "Event handled")]
+      (let [t0 (System/currentTimeMillis)
+            state (swap! state-atom handler event timestamp)]
+        (when (-> (System/currentTimeMillis) (- t0) (> 5000))
+          (println "Handling took more than 5s:" event))
         (when (and expected-state-hash                      ; Old journals don't have this state hash saved (2023-10-25)
                    (not= (hash state) expected-state-hash))
           (println "Inconsistent state detected after restoring event:\n" event)

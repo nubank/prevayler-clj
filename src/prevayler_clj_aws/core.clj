@@ -81,7 +81,7 @@
                   _ (println "Read" (count items) "items. last-key:" last-key)]
 
               (lazy-cat
-                (map (comp unmarshal :B :content tap #(tap-millis % "Item processed")) items)
+                (map (comp unmarshal :B :content tap #(tap-millis % "Item consumed by map")) items)
                 (if (seq last-key)
                   (read-page last-key)
                   []))))]
@@ -90,7 +90,9 @@
 (defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
   (let [items (read-items dynamo-cli table partkey page-size)]
     (doseq [[timestamp event expected-state-hash] items]
-      (let [state (swap! state-atom handler event timestamp)]
+      (let [_ (tap-millis nil "Before handler")
+            state (swap! state-atom handler event timestamp)
+            _ (tap-millis nil "Event handled")]
         (when (and expected-state-hash                      ; Old journals don't have this state hash saved (2023-10-25)
                    (not= (hash state) expected-state-hash))
           (println "Inconsistent state detected after restoring event:\n" event)

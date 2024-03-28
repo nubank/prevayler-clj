@@ -19,13 +19,26 @@
   (println "Length:" (count ba))
   ba)
 
+(def previous-time (atom (System/currentTimeMillis)))
+(defn- tap-millis [v msg]
+  (let [now (System/currentTimeMillis)
+        delta (- now @previous-time)]
+    (reset! previous-time now)
+    (println msg delta "ms"))
+  v)
+
+
 (defn- unmarshal [in]
   (-> (with-open [out (ByteArrayOutputStream.)]
         (io/copy in out)
         (.toByteArray out))
+      (tap-millis "Read inputStream")
       tap-count
       base64/decode-bytes
-      nippy/thaw))
+      (tap-millis "Decoded")
+      nippy/thaw
+      (tap-millis "Thawed")
+      ))
 
 (defn- snapshot-exists? [s3-cli bucket snapshot-path]
   (->> (util/aws-invoke s3-cli {:op      :ListObjects
@@ -68,7 +81,7 @@
                   _ (println "Read" (count items) "items. last-key:" last-key)]
 
               (lazy-cat
-                (map (comp unmarshal :B :content tap) items)
+                (map (comp unmarshal :B :content tap #(tap-millis % "Item processed")) items)
                 (if (seq last-key)
                   (read-page last-key)
                   []))))]

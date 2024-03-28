@@ -75,13 +75,6 @@
     (read-page {:order {:N "0"} :partkey {:N (str partkey)}})))
 
 (defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
-
-  (future
-    (loop []
-      (Thread/sleep 10000)
-      (println "STORED ITEM:" @stored-item)
-      (recur)))
-
   (let [items (read-items dynamo-cli table partkey page-size)]
     (doseq [[timestamp event expected-state-hash] items]
       (let [state (swap! state-atom handler event timestamp)]

@@ -15,10 +15,15 @@
       base64/encode-bytes
       String.))
 
+(defn- tap-count [^bytes ba]
+  (println "Length:" (count ba))
+  ba)
+
 (defn- unmarshal [in]
   (-> (with-open [out (ByteArrayOutputStream.)]
         (io/copy in out)
         (.toByteArray out))
+      tap-count
       base64/decode-bytes
       nippy/thaw))
 
@@ -44,9 +49,8 @@
                                      :Key    snapshot-path
                                      :Body   (marshal snapshot)}}))
 
-(def stored-item (atom nil))
-(defn- store-item [v]
-  (reset! stored-item v)
+(defn- tap [v]
+  (println v)
   v)
 
 (defn- read-items [dynamo-cli table partkey page-size]
@@ -64,7 +68,7 @@
                   _ (println "Read" (count items) "items. last-key:" last-key)]
 
               (lazy-cat
-                (map (comp unmarshal :B :content store-item) items)
+                (map (comp unmarshal :B :content tap) items)
                 (if (seq last-key)
                   (read-page last-key)
                   []))))]

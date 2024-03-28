@@ -44,6 +44,11 @@
                                      :Key    snapshot-path
                                      :Body   (marshal snapshot)}}))
 
+(def stored-item (atom nil))
+(defn- store-item [v]
+  (reset! stored-item v)
+  v)
+
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]
             (let [_ (println "Reading page" exclusive-start-key)
@@ -59,13 +64,20 @@
                   _ (println "Read" (count items) "items. last-key:" last-key)]
 
               (lazy-cat
-                (map (comp unmarshal :B :content) items)
+                (map (comp unmarshal :B :content store-item) items)
                 (if (seq last-key)
                   (read-page last-key)
                   []))))]
     (read-page {:order {:N "0"} :partkey {:N (str partkey)}})))
 
 (defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
+
+  (future
+    (loop []
+      (Thread/sleep 10000)
+      (println "STORED ITEM:" @stored-item)
+      (recur)))
+
   (let [items (read-items dynamo-cli table partkey page-size)]
     (doseq [[timestamp event expected-state-hash] items]
       (let [state (swap! state-atom handler event timestamp)]

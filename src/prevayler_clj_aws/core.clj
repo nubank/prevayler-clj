@@ -46,32 +46,36 @@
 
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]
-            (let [_ (println "Reading page" exclusive-start-key)
-                  result (util/aws-invoke
-                           dynamo-cli
-                           {:op      :Query
-                            :request {:TableName                 table
-                                      :KeyConditionExpression    "partkey = :partkey"
-                                      :ExpressionAttributeValues {":partkey" {:N (str partkey)}}
-                                      :Limit                     page-size
-                                      :ExclusiveStartKey         exclusive-start-key}})
-                  {items :Items last-key :LastEvaluatedKey} result
-                  _ (println "Read" (count items) "items. last-key:" last-key)]
+            (let [result (util/aws-invoke
+                          dynamo-cli
+                          {:op      :Query
+                           :request {:TableName                 table
+                                     :KeyConditionExpression    "partkey = :partkey"
+                                     :ExpressionAttributeValues {":partkey" {:N (str partkey)}}
+                                     :Limit                     page-size
+                                     :ExclusiveStartKey         exclusive-start-key}})
+                  {items :Items last-key :LastEvaluatedKey} result]
+              (println (count items) "items read. last-key:" last-key)
 
-              (lazy-cat
-                (map (comp unmarshal :B :content) items)
-                (if (seq last-key)
-                  (read-page last-key)
-                  []))))]
+              (lazy-cat (map (comp unmarshal :B :content) items)
+                        (if (seq last-key)
+                          (read-page last-key)
+                          []))))]
     (read-page {:order {:N "0"} :partkey {:N (str partkey)}})))
+
+(defn- print-when-slow [f msg]
+  (let [t0 (System/currentTimeMillis)
+        result (f)
+        ellapsed (- (System/currentTimeMillis) t0)]
+    (when (> ellapsed 1000)
+      (println "Handling took" ellapsed "ms:" msg))
+    result))
 
 (defn- restore-events! [dynamo-cli handler state-atom table partkey page-size]
   (let [items (read-items dynamo-cli table partkey page-size)]
     (doseq [[timestamp event expected-state-hash] items]
-      (let [t0 (System/currentTimeMillis)
-            state (swap! state-atom handler event timestamp)]
-        (when (-> (System/currentTimeMillis) (- t0) (> 5000))
-          (println "Handling took more than 5s:" event))
+      (let [state (print-when-slow #(swap! state-atom handler event timestamp)
+                                   event)]
         (when (and expected-state-hash                      ; Old journals don't have this state hash saved (2023-10-25)
                    (not= (hash state) expected-state-hash))
           (println "Inconsistent state detected after restoring event:\n" event)

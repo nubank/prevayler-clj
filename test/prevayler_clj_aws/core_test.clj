@@ -27,8 +27,8 @@
         dynamodb-table (gen-name)
         hostname (or (System/getenv "LOCALSTACK_HOST") "localhost")
         endpoint-override {:protocol "http" :hostname hostname :port (localstack-port)}
-        s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override :region "us-east-1"})
-        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override :region "us-east-1"})]
+        s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override #_#_:region "us-east-1"})
+        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override #_#_:region "us-east-1"})]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"

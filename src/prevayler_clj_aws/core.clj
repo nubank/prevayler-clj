@@ -113,7 +113,7 @@
         {state :state previous-snapshot-index :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
         _ (println "Reading snapshot bucket done.")
         state-atom (atom (or state initial-state))
-        snapshot-index (inc previous-snapshot-index)
+        snapshot-index-atom (atom (inc previous-snapshot-index))
         order-atom (atom 0)]
 
     (println "Restoring events...")
@@ -122,7 +122,7 @@
 
     ; since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
     ; and restore events from the previous partkey
-    (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom :partkey snapshot-index})
+    (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom :partkey @snapshot-index-atom})
     (println "Saving snapshot done.")
 
     (reify
@@ -133,7 +133,7 @@
                 timestamp (timestamp-fn)
                 new-state (business-fn current-state event timestamp)] ; (C)onsistency: must be guaranteed by the handler. The event won't be journalled when the handler throws an exception.)
             (when-not (identical? new-state current-state)
-              (write-event! dynamodb-client dynamodb-table snapshot-index
+              (write-event! dynamodb-client dynamodb-table @snapshot-index-atom
                             (swap! order-atom inc) ; Skips an order number if there is an exception, but that's OK.
                             [timestamp event (hash new-state)]) ; (D)urability
               (reset! state-atom new-state)) ; (A)tomicity

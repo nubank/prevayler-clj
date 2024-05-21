@@ -13,7 +13,7 @@
 (defonce localstack-port
   (memoize
    #(or (some-> (System/getenv "LOCALSTACK_PORT") (Integer/parseInt))
-        (-> (tc/create {:image-name "localstack/localstack:1.0.4"
+        (-> (tc/create {:image-name "localstack/localstack"
                         :exposed-ports [4566]})
             (tc/start!)
             :mapped-ports
@@ -120,4 +120,13 @@
               (catch Exception _))
           prev2 (prev! opts)]
       (is (= :initial-state @prev1))
-      (is (= :initial-state @prev2)))))
+      (is (= :initial-state @prev2))))
+  
+  (testing "snapshot! starts new journal with current state (business function is never called during start up)"
+        (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
+              prev1 (prev! opts)]
+          (prevayler/handle! prev1 1)
+          (prevayler/handle! prev1 2)
+          (prevayler/snapshot! prev1))
+        (let [prev2 (gen-opts :initial-state [] :business-fn (constantly "rubbish"))]
+          (is (= [1 2] @prev2)))))

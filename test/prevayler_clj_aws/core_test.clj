@@ -13,7 +13,7 @@
 (defonce localstack-port
   (memoize
    #(or (some-> (System/getenv "LOCALSTACK_PORT") (Integer/parseInt))
-        (-> (tc/create {:image-name "localstack/localstack"
+        (-> (tc/create {:image-name "localstack/localstack:1.0.4"
                         :exposed-ports [4566]})
             (tc/start!)
             :mapped-ports

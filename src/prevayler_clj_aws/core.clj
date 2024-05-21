@@ -110,19 +110,19 @@
                 snapshot-path   "snapshot"
                 page-size       1000}} aws-opts
         _ (println "Reading snapshot bucket...")
-        {state :state old-partkey :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
+        {state :state previous-snapshot-index :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
         _ (println "Reading snapshot bucket done.")
         state-atom (atom (or state initial-state))
-        new-partkey (inc old-partkey)
+        snapshot-index (inc previous-snapshot-index)
         order-atom (atom 0)]
 
     (println "Restoring events...")
-    (restore-events! dynamodb-client business-fn state-atom dynamodb-table old-partkey page-size)
+    (restore-events! dynamodb-client business-fn state-atom dynamodb-table previous-snapshot-index page-size)
     (println "Restoring events done.")
 
     ; since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
     ; and restore events from the previous partkey
-    (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom :partkey new-partkey})
+    (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom :partkey snapshot-index})
     (println "Saving snapshot done.")
 
     (reify
@@ -133,11 +133,16 @@
                 timestamp (timestamp-fn)
                 new-state (business-fn current-state event timestamp)] ; (C)onsistency: must be guaranteed by the handler. The event won't be journalled when the handler throws an exception.)
             (when-not (identical? new-state current-state)
-              (write-event! dynamodb-client dynamodb-table new-partkey
+              (write-event! dynamodb-client dynamodb-table snapshot-index
                             (swap! order-atom inc) ; Skips an order number if there is an exception, but that's OK.
                             [timestamp event (hash new-state)]) ; (D)urability
               (reset! state-atom new-state)) ; (A)tomicity
-            new-state)))                
+            new-state)))
+
+      #_(snapshot! [this]
+        (locking this
+          (start-new-journal! journal-file data-out-atom @state-atom backup)))
+
       (timestamp [_] (timestamp-fn))
 
       IDeref (deref [_] @state-atom)

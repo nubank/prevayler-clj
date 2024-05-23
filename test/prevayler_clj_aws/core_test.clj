@@ -127,7 +127,6 @@
               prev1 (prev! opts)]
           (prevayler/handle! prev1 "A")
           (prevayler/handle! prev1 "B")
-          (prevayler/snapshot! prev1))
-        (let [opts (gen-opts :initial-state [] :business-fn (constantly "rubbish"))
-              prev2 (prev! opts)]
-          (is (= ["A" "B"] @prev2)))))
+          (prevayler/snapshot! prev1)
+          (let [prev2 (prev! (assoc opts :business-fn (constantly "rubbish")))]
+            (is (= ["A" "B"] @prev2))))))

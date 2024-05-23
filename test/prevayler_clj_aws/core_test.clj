@@ -60,25 +60,31 @@
     (let [prevayler (prev! (gen-opts))
           t0 (- (System/currentTimeMillis) 1)]
       (is (> (prevayler/timestamp prevayler) t0))))
+  
   (testing "can override timestamp-fn"
     (let [prevayler (prev! (gen-opts :timestamp-fn (constantly :timestamp)))]
       (is (= :timestamp
              (prevayler/timestamp prevayler)))))
+  
   (testing "snapshot is the default snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts)
           _ (prev! opts)]
       (is (match? [{:Key "snapshot"}] (list-objects s3-client s3-bucket)))))
+  
   (testing "can override snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :aws-opts {:snapshot-path "my-path"})
           _ (prev! opts)]
       (is (match? [{:Key "my-path"}] (list-objects s3-client s3-bucket)))))
+  
   (testing "default initial state is empty map"
     (let [prevayler (prev! (gen-opts))]
       (is (= {} @prevayler))))
+  
   (testing "can override initial state"
     (let [prevayler (prev! (gen-opts :initial-state :initial-state))]
       (is (= :initial-state
              @prevayler))))
+  
   (testing "handles event"
     (let [prevayler (prev! (gen-opts :initial-state []
                                      :business-fn (fn [state event timestamp]
@@ -87,6 +93,7 @@
           _ (prevayler/handle! prevayler :event)]
       (is (= [[:event :timestamp]]
              @prevayler))))
+  
   (testing "restart after some events recover last state"
     (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
           prev1 (prev! opts)
@@ -94,6 +101,7 @@
           _ (prevayler/handle! prev1 2)
           prev2 (prev! opts)]
       (is (= [1 2] @prev2))))
+  
   (testing "only replay events since last restart"
     (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
           prev1 (prev! opts)
@@ -102,6 +110,7 @@
           _ (prevayler/handle! prev2 2)
           prev3 (prev! opts)]
       (is (= [1 2] @prev3))))
+  
   (testing "replay more than one page"
     (let [opts (gen-opts :initial-state []
                          :business-fn (fn [state event _] (conj state event))
@@ -111,6 +120,7 @@
           _ (prevayler/handle! prev1 2)
           prev2 (prev! opts)]
       (is (= [1 2] @prev2))))
+  
   (testing "exception in event handler does not affect state"
     (let [opts (gen-opts :initial-state :initial-state :business-fn (fn [_ _ _]
                                                                       (throw (ex-info "boom" {}))))
@@ -123,10 +133,14 @@
       (is (= :initial-state @prev2))))
   
   (testing "snapshot! starts new journal with current state (business function is never called during start up)"
-        (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
-              prev1 (prev! opts)]
-          (prevayler/handle! prev1 "A")
-          (prevayler/handle! prev1 "B")
-          (prevayler/snapshot! prev1)
-          (let [prev2 (prev! (assoc opts :business-fn (constantly "rubbish")))]
-            (is (= ["A" "B"] @prev2))))))
+    (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
+          prev1 (prev! opts)]
+      (prevayler/handle! prev1 "A")
+      (prevayler/handle! prev1 "B")
+      (prevayler/snapshot! prev1)
+      (prevayler/handle! prev1 "C")
+      (prevayler/handle! prev1 "D")
+      (prevayler/snapshot! prev1)
+      (prevayler/snapshot! prev1)
+      (let [prev2 (prev! (assoc opts :business-fn (constantly "rubbish")))]
+        (is (= ["A" "B" "C" "D"] @prev2))))))

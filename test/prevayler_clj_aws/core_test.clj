@@ -125,9 +125,9 @@
   (testing "snapshot! starts new journal with current state (business function is never called during start up)"
         (let [opts (gen-opts :initial-state [] :business-fn (fn [state event _] (conj state event)))
               prev1 (prev! opts)]
-          (prevayler/handle! prev1 1)
-          (prevayler/handle! prev1 2)
+          (prevayler/handle! prev1 "A")
+          (prevayler/handle! prev1 "B")
           (prevayler/snapshot! prev1))
         (let [opts (gen-opts :initial-state [] :business-fn (constantly "rubbish"))
               prev2 (prev! opts)]
-          (is (= [1 2] @prev2)))))
+          (is (= ["A" "B"] @prev2)))))

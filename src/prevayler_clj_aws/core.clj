@@ -55,10 +55,9 @@
         {:partkey 0}))))
 
 (defn- marshal-to-in [value]
-  (let [input  (java.io.PipedInputStream. (* 1024 32)) ; 32k buffer
-        output (-> input java.io.PipedOutputStream. java.io.BufferedOutputStream. java.io.DataOutputStream.)]
+  (let [input  (java.io.PipedInputStream. (* 1024 32))] ; 32k buffer
       (future
-        (with-open [out output]
+        (with-open [out (-> input java.io.PipedOutputStream. java.io.BufferedOutputStream. java.io.DataOutputStream.)]
           (nippy/freeze-to-out! out value)))
       input))
 

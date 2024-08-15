@@ -7,9 +7,6 @@ jobs:
     env:
       LOCALSTACK_HOST: localstack
       LOCALSTACK_PORT: 4566
-      AWS_ACCESS_KEY_ID: unknown
-      AWS_SECRET_ACCESS_KEY: unknown
-      AWS_REGION: us-east-1
     services:
       localstack:
         image: localstack/localstack

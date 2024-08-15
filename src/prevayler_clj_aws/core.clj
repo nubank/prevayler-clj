@@ -29,20 +29,41 @@
        :Contents
        (some #(= snapshot-path (:Key %)))))
 
+(defn- snapshot-v2-path [snapshot-path]
+  (str snapshot-path "-v2"))
+
 (defn- read-snapshot [s3-cli bucket snapshot-path]
-  (if (snapshot-exists? s3-cli bucket snapshot-path)
-    (-> (util/aws-invoke s3-cli {:op      :GetObject
-                                 :request {:Bucket bucket
-                                           :Key    snapshot-path}})
-        :Body
-        unmarshal)
-    {:partkey 0}))
+  (let [v2-path (snapshot-v2-path snapshot-path)]
+    (if (snapshot-exists? s3-cli bucket v2-path)
+      (-> (util/aws-invoke s3-cli {:op      :GetObject
+                                   :request {:Bucket bucket
+                                             :Key    v2-path}})
+          :Body
+          java.io.BufferedInputStream.
+          java.io.DataInputStream.
+          nippy/thaw-from-in!)
+      (if (snapshot-exists? s3-cli bucket snapshot-path)
+        (-> (util/aws-invoke s3-cli {:op      :GetObject
+                                     :request {:Bucket bucket
+                                               :Key    snapshot-path}})
+            :Body
+            unmarshal)
+        {:partkey 0}))))
+
+(defn- marshal-to-in [value]
+  (let [input  (java.io.PipedInputStream. (* 1024 32)) ; 32k buffer
+        output (-> input java.io.PipedOutputStream. java.io.BufferedOutputStream. java.io.DataOutputStream.)]
+      (future
+        (with-open [out output]
+          (nippy/freeze-to-out! out value)))
+      input))
 
 (defn- save-snapshot! [s3-cli bucket snapshot-path snapshot]
-  (util/aws-invoke s3-cli {:op      :PutObject
-                           :request {:Bucket bucket
-                                     :Key    snapshot-path
-                                     :Body   (marshal snapshot)}}))
+  (let [v2-path (snapshot-v2-path snapshot-path)]
+    (util/aws-invoke s3-cli {:op      :PutObject
+                             :request {:Bucket bucket
+                                       :Key    v2-path
+                                       :Body   (marshal-to-in snapshot)}})))
 
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]

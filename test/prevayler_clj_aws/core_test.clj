@@ -7,6 +7,7 @@
             [com.gfredericks.test.chuck.generators :as genc]
             [clojure.test.check.generators :as gen]
             [cognitect.aws.client.api :as aws]
+            [cognitect.aws.credentials :as credentials]
             [meta-merge.core :refer [meta-merge]]
             [matcher-combinators.test :refer [match?]]))
 
@@ -27,8 +28,9 @@
         dynamodb-table (gen-name)
         hostname (or (System/getenv "LOCALSTACK_HOST") "localhost")
         endpoint-override {:protocol "http" :hostname hostname :port (localstack-port)}
-        s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override})
-        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override})]
+        credentials-provider (credentials/basic-credentials-provider {:access-key-id "dumb" :secret-access-key "dumb"})
+        s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})
+        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"
@@ -69,12 +71,12 @@
   (testing "snapshot is the default snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts)
           _ (prev! opts)]
-      (is (match? [{:Key "snapshot"}] (list-objects s3-client s3-bucket)))))
+      (is (match? [{:Key "snapshot-v2"}] (list-objects s3-client s3-bucket)))))
   
   (testing "can override snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :aws-opts {:snapshot-path "my-path"})
           _ (prev! opts)]
-      (is (match? [{:Key "my-path"}] (list-objects s3-client s3-bucket)))))
+      (is (match? [{:Key "my-path-v2"}] (list-objects s3-client s3-bucket)))))
   
   (testing "default initial state is empty map"
     (let [prevayler (prev! (gen-opts))]

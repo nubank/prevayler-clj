@@ -32,6 +32,12 @@
 (defn- snapshot-v2-path [snapshot-path]
   (str snapshot-path "-v2"))
 
+(defn- unmarshal-from-in [in]
+  (-> in
+      java.io.BufferedInputStream.
+      java.io.DataInputStream.
+      nippy/thaw-from-in!))
+
 (defn- read-snapshot [s3-cli bucket snapshot-path]
   (let [v2-path (snapshot-v2-path snapshot-path)]
     (if (snapshot-exists? s3-cli bucket v2-path)
@@ -39,9 +45,7 @@
                                    :request {:Bucket bucket
                                              :Key    v2-path}})
           :Body
-          java.io.BufferedInputStream.
-          java.io.DataInputStream.
-          nippy/thaw-from-in!)
+          unmarshal-from-in)
       (if (snapshot-exists? s3-cli bucket snapshot-path)
         (-> (util/aws-invoke s3-cli {:op      :GetObject
                                      :request {:Bucket bucket

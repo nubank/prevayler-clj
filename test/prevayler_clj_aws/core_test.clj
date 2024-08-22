@@ -157,7 +157,7 @@
         (is (= ["A" "B" "C" "D"] @prev2)))))
 
   (testing "it converts to snapshot v2"
-    (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :initial-state [] :business-fn (fn [state _ _] state))
+    (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :initial-state [])
           _ (util/aws-invoke s3-client {:op :PutObject
                                         :request {:Bucket s3-bucket
                                                   :Key "snapshot"

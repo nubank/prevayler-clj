@@ -9,7 +9,9 @@
             [cognitect.aws.client.api :as aws]
             [cognitect.aws.credentials :as credentials]
             [meta-merge.core :refer [meta-merge]]
-            [matcher-combinators.test :refer [match?]]))
+            [matcher-combinators.test :refer [match?]])
+  (:import [com.amazonaws.services.s3 AmazonS3ClientBuilder]
+           [com.amazonaws.client.builder AwsClientBuilder$EndpointConfiguration]))
 
 (defonce localstack-port
   (memoize
@@ -27,10 +29,16 @@
   (let [s3-bucket (gen-name)
         dynamodb-table (gen-name)
         hostname (or (System/getenv "LOCALSTACK_HOST") "localhost")
-        endpoint-override {:protocol "http" :hostname hostname :port (localstack-port)}
+        port (localstack-port)
+        endpoint-override {:protocol "http" :hostname hostname :port port}
+        endpoint (str "http://" hostname ":" port)
         credentials-provider (credentials/basic-credentials-provider {:access-key-id "dumb" :secret-access-key "dumb"})
         s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})
-        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})]
+        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})
+        s3-sdk-cli (-> (AmazonS3ClientBuilder/standard)
+                       (.withEndpointConfiguration (AwsClientBuilder$EndpointConfiguration. endpoint "us-east-1"))
+                       (.withPathStyleAccessEnabled true)
+                       (.build))]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"
@@ -45,7 +53,8 @@
     (meta-merge {:aws-opts {:s3-bucket s3-bucket
                             :dynamodb-table dynamodb-table
                             :s3-client s3-cli
-                            :dynamodb-client dynamodb-cli}}
+                            :dynamodb-client dynamodb-cli
+                            :s3-sdk-cli s3-sdk-cli}}
                 opts)))
 
 (defn prev!

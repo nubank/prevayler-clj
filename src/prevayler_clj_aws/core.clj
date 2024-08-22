@@ -8,7 +8,8 @@
     [prevayler-clj-aws.util :as util])
   (:import
     [clojure.lang IDeref]
-    [java.io ByteArrayOutputStream Closeable]))
+    [java.io ByteArrayOutputStream Closeable]
+    [com.amazonaws.services.s3.model GetObjectRequest]))
 
 (defn- marshal [value]
   (-> (nippy/freeze value)
@@ -38,20 +39,17 @@
       java.io.DataInputStream.
       nippy/thaw-from-in!))
 
-(defn- read-snapshot [s3-cli bucket snapshot-path]
+(defn read-object [s3-sdk-cli bucket path unmarshal-fn]
+  (-> (.getObject s3-sdk-cli (GetObjectRequest. bucket path))
+      (.getObjectContent)
+      unmarshal-fn))
+
+(defn- read-snapshot [s3-cli s3-sdk-cli bucket snapshot-path]
   (let [v2-path (snapshot-v2-path snapshot-path)]
     (if (snapshot-exists? s3-cli bucket v2-path)
-      (-> (util/aws-invoke s3-cli {:op      :GetObject
-                                   :request {:Bucket bucket
-                                             :Key    v2-path}})
-          :Body
-          unmarshal-from-in)
+      (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)
       (if (snapshot-exists? s3-cli bucket snapshot-path)
-        (-> (util/aws-invoke s3-cli {:op      :GetObject
-                                     :request {:Bucket bucket
-                                               :Key    snapshot-path}})
-            :Body
-            unmarshal)
+        (read-object s3-sdk-cli bucket snapshot-path unmarshal)
         {:partkey 0}))))
 
 (defn- marshal-to-in [value]
@@ -129,13 +127,13 @@
   [{:keys [initial-state business-fn timestamp-fn aws-opts]
     :or   {initial-state {}
            timestamp-fn  #(System/currentTimeMillis)}}]
-  (let [{:keys [dynamodb-client s3-client dynamodb-table snapshot-path s3-bucket page-size]
+  (let [{:keys [dynamodb-client s3-client s3-sdk-cli dynamodb-table snapshot-path s3-bucket page-size]
          :or   {dynamodb-client (aws/client {:api :dynamodb})
                 s3-client       (aws/client {:api :s3})
                 snapshot-path   "snapshot"
                 page-size       1000}} aws-opts
         _ (println "Reading snapshot bucket...")
-        {state :state snapshot-index :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
+        {state :state snapshot-index :partkey} (read-snapshot s3-client s3-sdk-cli s3-bucket snapshot-path)
         _ (println "Reading snapshot bucket done.")
         state-atom (atom (or state initial-state))
         snapshot-index-atom (atom snapshot-index)]

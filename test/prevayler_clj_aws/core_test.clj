@@ -77,7 +77,7 @@
       (is (= :timestamp
              (prevayler/timestamp prevayler)))))
   
-  (testing "snapshot is the default snapshot file name"
+  (testing "snapshot-v2 is the default snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts)
           _ (prev! opts)]
       (is (match? [{:Key "snapshot-v2"}] (list-objects s3-client s3-bucket)))))

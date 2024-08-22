@@ -39,7 +39,7 @@
       java.io.DataInputStream.
       nippy/thaw-from-in!))
 
-(defn read-object [s3-sdk-cli bucket path unmarshal-fn]
+(defn- read-object [s3-sdk-cli bucket path unmarshal-fn]
   (-> (.getObject s3-sdk-cli (GetObjectRequest. bucket path))
       (.getObjectContent)
       unmarshal-fn))

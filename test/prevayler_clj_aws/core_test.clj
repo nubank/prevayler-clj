@@ -145,4 +145,18 @@
       (prevayler/snapshot! prev1)
       (prevayler/snapshot! prev1)
       (let [prev2 (prev! (assoc opts :business-fn (constantly "rubbish")))]
-        (is (= ["A" "B" "C" "D"] @prev2))))))
+        (is (= ["A" "B" "C" "D"] @prev2)))))
+
+  (testing "it converts to snapshot v2"
+    (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :initial-state [] :business-fn (fn [state _ _] state))
+          _ (util/aws-invoke s3-client {:op :PutObject
+                                        :request {:Bucket s3-bucket
+                                                  :Key "snapshot"
+                                                  :Body (#'core/marshal {:partkey 0
+                                                                         :state :state})}})
+          prev (prev! opts)] ;; saves snapshot-v2
+      (is (= :state @prev))
+      (util/aws-invoke s3-client {:op :DeleteObject
+                                  :request {:Bucket s3-bucket
+                                            :Key "snapshot"}})
+      (is (= :state @(prev! opts))))))

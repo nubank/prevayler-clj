@@ -9,7 +9,7 @@
   (:import
     [clojure.lang IDeref]
     [java.io ByteArrayOutputStream Closeable]
-    [com.amazonaws.services.s3.model GetObjectRequest]))
+    [com.amazonaws.services.s3.model GetObjectRequest PutObjectRequest ObjectMetadata]))
 
 (defn- marshal [value]
   (-> (nippy/freeze value)
@@ -60,12 +60,14 @@
           (nippy/freeze-to-out! out value)))
       input))
 
-(defn- save-snapshot! [s3-cli bucket snapshot-path snapshot]
-  (let [v2-path (snapshot-v2-path snapshot-path)]
-    (util/aws-invoke s3-cli {:op      :PutObject
-                             :request {:Bucket bucket
-                                       :Key    v2-path
-                                       :Body   (marshal-to-in snapshot)}})))
+(defn- save-snapshot! [s3-sdk-cli bucket snapshot-path snapshot]
+  (let [v2-path (snapshot-v2-path snapshot-path)
+        temp-file (java.io.File/createTempFile "snapshot" "")]
+    (with-open [temp-out (-> (java.io.FileOutputStream. temp-file) java.io.BufferedOutputStream. java.io.DataOutputStream.)]
+      (nippy/freeze-to-out! temp-out snapshot))
+    (with-open [temp-in (java.io.BufferedInputStream. (java.io.FileInputStream. temp-file))]
+      (.putObject s3-sdk-cli (PutObjectRequest. bucket v2-path temp-in (doto (ObjectMetadata.)
+                                                                         (.setContentLength (.length temp-file))))))))
 
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]
@@ -147,7 +149,7 @@
                          (println "Saving snapshot to bucket...")
                          ; Since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
                          ; and restore events from the previous partkey
-                         (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom
+                         (save-snapshot! s3-sdk-cli s3-bucket snapshot-path {:state @state-atom
                                                                             :partkey (inc @snapshot-index-atom)})
                          (println "Snapshot done.")
                          (swap! snapshot-index-atom inc)

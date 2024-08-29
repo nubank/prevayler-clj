@@ -9,7 +9,8 @@
   (:import
     [clojure.lang IDeref]
     [java.io ByteArrayOutputStream Closeable]
-    [com.amazonaws.services.s3.model GetObjectRequest PutObjectRequest ObjectMetadata]))
+    [com.amazonaws.services.s3.model GetObjectRequest PutObjectRequest ObjectMetadata]
+    [com.amazonaws.services.s3 AmazonS3ClientBuilder]))
 
 (defn- marshal [value]
   (-> (nippy/freeze value)
@@ -132,6 +133,8 @@
   (let [{:keys [dynamodb-client s3-client s3-sdk-cli dynamodb-table snapshot-path s3-bucket page-size]
          :or   {dynamodb-client (aws/client {:api :dynamodb})
                 s3-client       (aws/client {:api :s3})
+                s3-sdk-cli      (-> (AmazonS3ClientBuilder/standard)
+                                    (.build))
                 snapshot-path   "snapshot"
                 page-size       1000}} aws-opts
         _ (println "Reading snapshot bucket...")

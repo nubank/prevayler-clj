@@ -80,12 +80,12 @@
   (testing "snapshot-v2 is the default snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts)
           _ (prev! opts)]
-      (is (match? [{:Key "snapshot-v2"}] (list-objects s3-client s3-bucket)))))
+      (is (match? [{:Key "snapshot"} {:Key "snapshot-v2"}] (list-objects s3-client s3-bucket)))))
   
   (testing "can override snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :aws-opts {:snapshot-path "my-path"})
           _ (prev! opts)]
-      (is (match? [{:Key "my-path-v2"}] (list-objects s3-client s3-bucket)))))
+      (is (match? [{:Key "my-path"} {:Key "my-path-v2"}] (list-objects s3-client s3-bucket)))))
   
   (testing "default initial state is empty map"
     (let [prevayler (prev! (gen-opts))]
@@ -156,8 +156,8 @@
       (let [prev2 (prev! (assoc opts :business-fn (constantly "rubbish")))]
         (is (= ["A" "B" "C" "D"] @prev2)))))
 
-  (testing "it converts to snapshot v2"
-    (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts)
+  (testing "it generates snapshot v2"
+    (let [{{:keys [s3-client s3-sdk-cli s3-bucket]} :aws-opts :as opts} (gen-opts)
           _ (util/aws-invoke s3-client {:op :PutObject
                                         :request {:Bucket s3-bucket
                                                   :Key "snapshot"
@@ -165,7 +165,4 @@
                                                                          :state :state})}})
           prev (prev! opts)] ;; saves snapshot-v2
       (is (= :state @prev))
-      (util/aws-invoke s3-client {:op :DeleteObject
-                                  :request {:Bucket s3-bucket
-                                            :Key "snapshot"}})
-      (is (= :state @(prev! opts))))))
+      (is (= {:state :state :partkey 1} (#'core/read-object s3-sdk-cli s3-bucket "snapshot-v2" #'core/unmarshal-from-in))))))

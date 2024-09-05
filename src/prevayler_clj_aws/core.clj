@@ -8,7 +8,9 @@
     [prevayler-clj-aws.util :as util])
   (:import
     [clojure.lang IDeref]
-    [java.io ByteArrayOutputStream Closeable]))
+    [java.io ByteArrayOutputStream Closeable]
+    [com.amazonaws.services.s3.model GetObjectRequest PutObjectRequest ObjectMetadata]
+    [com.amazonaws.services.s3 AmazonS3ClientBuilder]))
 
 (defn- marshal [value]
   (-> (nippy/freeze value)
@@ -29,20 +31,48 @@
        :Contents
        (some #(= snapshot-path (:Key %)))))
 
-(defn- read-snapshot [s3-cli bucket snapshot-path]
+(defn- snapshot-v2-path [snapshot-path]
+  (str snapshot-path "-v2"))
+
+(defn- unmarshal-from-in [in]
+  (-> in
+      java.io.BufferedInputStream.
+      java.io.DataInputStream.
+      nippy/thaw-from-in!))
+
+(defn- read-object [s3-sdk-cli bucket path unmarshal-fn]
+  (-> (.getObject s3-sdk-cli (GetObjectRequest. bucket path))
+      (.getObjectContent)
+      unmarshal-fn))
+
+(defn- read-snapshot [s3-cli s3-sdk-cli bucket snapshot-path]
   (if (snapshot-exists? s3-cli bucket snapshot-path)
-    (-> (util/aws-invoke s3-cli {:op      :GetObject
-                                 :request {:Bucket bucket
-                                           :Key    snapshot-path}})
-        :Body
-        unmarshal)
+    (let [v2-path (snapshot-v2-path snapshot-path)
+          snap1 (read-object s3-sdk-cli bucket snapshot-path unmarshal)]
+      (try
+        (when (snapshot-exists? s3-cli bucket v2-path)
+          (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
+            (println "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2")))
+        (catch Exception e
+          (.printStackTrace e)))
+      snap1)
     {:partkey 0}))
 
-(defn- save-snapshot! [s3-cli bucket snapshot-path snapshot]
+(defn- save-snapshot! [s3-cli s3-sdk-cli bucket snapshot-path snapshot]
   (util/aws-invoke s3-cli {:op      :PutObject
                            :request {:Bucket bucket
                                      :Key    snapshot-path
-                                     :Body   (marshal snapshot)}}))
+                                     :Body   (marshal snapshot)}})
+  (try
+    (let [v2-path (snapshot-v2-path snapshot-path)
+          temp-file (java.io.File/createTempFile "snapshot" "")]
+      (with-open [temp-out (-> (java.io.FileOutputStream. temp-file) java.io.BufferedOutputStream. java.io.DataOutputStream.)]
+        (nippy/freeze-to-out! temp-out snapshot))
+      (with-open [temp-in (java.io.BufferedInputStream. (java.io.FileInputStream. temp-file))]
+        (.putObject s3-sdk-cli (PutObjectRequest. bucket v2-path temp-in (doto (ObjectMetadata.)
+                                                                           (.setContentLength (.length temp-file)))))))
+    (catch Exception e
+      (.printStackTrace e))))
 
 (defn- read-items [dynamo-cli table partkey page-size]
   (letfn [(read-page [exclusive-start-key]
@@ -104,13 +134,15 @@
   [{:keys [initial-state business-fn timestamp-fn aws-opts]
     :or   {initial-state {}
            timestamp-fn  #(System/currentTimeMillis)}}]
-  (let [{:keys [dynamodb-client s3-client dynamodb-table snapshot-path s3-bucket page-size]
+  (let [{:keys [dynamodb-client s3-client s3-sdk-cli dynamodb-table snapshot-path s3-bucket page-size]
          :or   {dynamodb-client (aws/client {:api :dynamodb})
                 s3-client       (aws/client {:api :s3})
+                s3-sdk-cli      (-> (AmazonS3ClientBuilder/standard)
+                                    (.build))
                 snapshot-path   "snapshot"
                 page-size       1000}} aws-opts
         _ (println "Reading snapshot bucket...")
-        {state :state snapshot-index :partkey} (read-snapshot s3-client s3-bucket snapshot-path)
+        {state :state snapshot-index :partkey} (read-snapshot s3-client s3-sdk-cli s3-bucket snapshot-path)
         _ (println "Reading snapshot bucket done.")
         state-atom (atom (or state initial-state))
         snapshot-index-atom (atom snapshot-index)]
@@ -124,7 +156,7 @@
                          (println "Saving snapshot to bucket...")
                          ; Since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
                          ; and restore events from the previous partkey
-                         (save-snapshot! s3-client s3-bucket snapshot-path {:state @state-atom
+                         (save-snapshot! s3-client s3-sdk-cli s3-bucket snapshot-path {:state @state-atom
                                                                             :partkey (inc @snapshot-index-atom)})
                          (println "Snapshot done.")
                          (swap! snapshot-index-atom inc)

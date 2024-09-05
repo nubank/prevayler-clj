@@ -3,7 +3,9 @@
         com.cognitect.aws/endpoints {:mvn/version "1.1.12.230"}
         com.cognitect.aws/dynamodb {:mvn/version "821.2.1107.0"}
         com.cognitect.aws/s3 {:mvn/version "822.2.1145.0"}
-        base64-clj/base64-clj {:mvn/version "0.1.1"}}
+        base64-clj/base64-clj {:mvn/version "0.1.1"}
+        com.amazonaws/aws-java-sdk-core {:mvn/version "1.12.388"}
+        com.amazonaws/aws-java-sdk-s3 {:mvn/version "1.12.388"}}
  :aliases {:test {:extra-paths ["test"]
                   :extra-deps {clj-test-containers/clj-test-containers {:mvn/version "0.7.2"}
                                org.clojure/test.check {:mvn/version "1.1.1"}

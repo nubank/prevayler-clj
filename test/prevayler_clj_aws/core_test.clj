@@ -7,8 +7,11 @@
             [com.gfredericks.test.chuck.generators :as genc]
             [clojure.test.check.generators :as gen]
             [cognitect.aws.client.api :as aws]
+            [cognitect.aws.credentials :as credentials]
             [meta-merge.core :refer [meta-merge]]
-            [matcher-combinators.test :refer [match?]]))
+            [matcher-combinators.test :refer [match?]])
+  (:import [com.amazonaws.services.s3 AmazonS3ClientBuilder]
+           [com.amazonaws.client.builder AwsClientBuilder$EndpointConfiguration]))
 
 (defonce localstack-port
   (memoize
@@ -26,9 +29,16 @@
   (let [s3-bucket (gen-name)
         dynamodb-table (gen-name)
         hostname (or (System/getenv "LOCALSTACK_HOST") "localhost")
-        endpoint-override {:protocol "http" :hostname hostname :port (localstack-port)}
-        s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override})
-        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override})]
+        port (localstack-port)
+        endpoint-override {:protocol "http" :hostname hostname :port port}
+        endpoint (str "http://" hostname ":" port)
+        credentials-provider (credentials/basic-credentials-provider {:access-key-id "dumb" :secret-access-key "dumb"})
+        s3-cli       (aws/client {:api :s3       :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})
+        dynamodb-cli (aws/client {:api :dynamodb :endpoint-override endpoint-override :region "us-east-1" :credentials-provider credentials-provider})
+        s3-sdk-cli (-> (AmazonS3ClientBuilder/standard)
+                       (.withEndpointConfiguration (AwsClientBuilder$EndpointConfiguration. endpoint "us-east-1"))
+                       (.withPathStyleAccessEnabled true)
+                       (.build))]
     (util/aws-invoke s3-cli {:op :CreateBucket :request {:Bucket s3-bucket}})
     (util/aws-invoke dynamodb-cli {:op :CreateTable :request {:TableName dynamodb-table
                                                               :AttributeDefinitions [{:AttributeName "partkey"
@@ -43,7 +53,8 @@
     (meta-merge {:aws-opts {:s3-bucket s3-bucket
                             :dynamodb-table dynamodb-table
                             :s3-client s3-cli
-                            :dynamodb-client dynamodb-cli}}
+                            :dynamodb-client dynamodb-cli
+                            :s3-sdk-cli s3-sdk-cli}}
                 opts)))
 
 (defn prev!
@@ -66,15 +77,15 @@
       (is (= :timestamp
              (prevayler/timestamp prevayler)))))
   
-  (testing "snapshot is the default snapshot file name"
+  (testing "snapshot-v2 is the default snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts)
           _ (prev! opts)]
-      (is (match? [{:Key "snapshot"}] (list-objects s3-client s3-bucket)))))
+      (is (match? [{:Key "snapshot"} {:Key "snapshot-v2"}] (list-objects s3-client s3-bucket)))))
   
   (testing "can override snapshot file name"
     (let [{{:keys [s3-client s3-bucket]} :aws-opts :as opts} (gen-opts :aws-opts {:snapshot-path "my-path"})
           _ (prev! opts)]
-      (is (match? [{:Key "my-path"}] (list-objects s3-client s3-bucket)))))
+      (is (match? [{:Key "my-path"} {:Key "my-path-v2"}] (list-objects s3-client s3-bucket)))))
   
   (testing "default initial state is empty map"
     (let [prevayler (prev! (gen-opts))]
@@ -143,4 +154,15 @@
       (prevayler/snapshot! prev1)
       (prevayler/snapshot! prev1)
       (let [prev2 (prev! (assoc opts :business-fn (constantly "rubbish")))]
-        (is (= ["A" "B" "C" "D"] @prev2))))))
+        (is (= ["A" "B" "C" "D"] @prev2)))))
+
+  (testing "it generates snapshot v2"
+    (let [{{:keys [s3-client s3-sdk-cli s3-bucket]} :aws-opts :as opts} (gen-opts)
+          _ (util/aws-invoke s3-client {:op :PutObject
+                                        :request {:Bucket s3-bucket
+                                                  :Key "snapshot"
+                                                  :Body (#'core/marshal {:partkey 0
+                                                                         :state :state})}})
+          prev (prev! opts)] ;; saves snapshot-v2
+      (is (= :state @prev))
+      (is (= {:state :state :partkey 1} (#'core/read-object s3-sdk-cli s3-bucket "snapshot-v2" #'core/unmarshal-from-in))))))

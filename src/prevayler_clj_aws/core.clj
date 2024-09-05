@@ -52,8 +52,7 @@
       (try
         (when (snapshot-exists? s3-cli bucket v2-path)
           (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
-            (when-not (= snap1 snap2)
-              (prn "snapshot v2 is not equal to snapshot v1"))))
+            (println "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2")))
         (catch Exception e
           (.printStackTrace e)))
       snap1)

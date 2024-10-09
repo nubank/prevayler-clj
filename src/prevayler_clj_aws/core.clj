@@ -50,9 +50,10 @@
     (let [v2-path (snapshot-v2-path snapshot-path)
           snap1 (read-object s3-sdk-cli bucket snapshot-path unmarshal)]
       (try
-        (when (snapshot-exists? s3-cli bucket v2-path)
+        (if (snapshot-exists? s3-cli bucket v2-path)
           (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
-            (println "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2")))
+            (println "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2"))
+          (println v2-path "object not found in bucket."))
         (catch Exception e
           (.printStackTrace e)))
       snap1)
@@ -65,12 +66,15 @@
                                      :Body   (marshal snapshot)}})
   (try
     (let [v2-path (snapshot-v2-path snapshot-path)
-          temp-file (java.io.File/createTempFile "snapshot" "")]
-      (with-open [temp-out (-> (java.io.FileOutputStream. temp-file) java.io.BufferedOutputStream. java.io.DataOutputStream.)]
-        (nippy/freeze-to-out! temp-out snapshot))
-      (with-open [temp-in (java.io.BufferedInputStream. (java.io.FileInputStream. temp-file))]
-        (.putObject s3-sdk-cli (PutObjectRequest. bucket v2-path temp-in (doto (ObjectMetadata.)
-                                                                           (.setContentLength (.length temp-file)))))))
+          temp-file (java.io.File/createTempFile "snapshot" "")] ; We use an intermediary file to easily determine the length of the stream. Otherwise, to determine its length, Amazon's SDK would buffer the entire stream in RAM, defeating our purpose.
+      (try
+        (with-open [temp-out (-> (java.io.FileOutputStream. temp-file) java.io.BufferedOutputStream. java.io.DataOutputStream.)]
+          (nippy/freeze-to-out! temp-out snapshot))
+        (with-open [temp-in (java.io.BufferedInputStream. (java.io.FileInputStream. temp-file))]
+          (.putObject s3-sdk-cli (PutObjectRequest. bucket v2-path temp-in (doto (ObjectMetadata.)
+                                                                             (.setContentLength (.length temp-file))))))
+        (finally
+          (.delete temp-file))))
     (catch Exception e
       (.printStackTrace e))))
 

@@ -49,13 +49,10 @@
   (if (snapshot-exists? s3-cli bucket snapshot-path)
     (let [v2-path (snapshot-v2-path snapshot-path)
           snap1 (read-object s3-sdk-cli bucket snapshot-path unmarshal)]
-      (try
-        (if (snapshot-exists? s3-cli bucket v2-path)
-          (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
-            (println "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2"))
-          (println v2-path "object not found in bucket."))
-        (catch Exception e
-          (.printStackTrace e)))
+      (if (snapshot-exists? s3-cli bucket v2-path)
+        (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
+          (throw (RuntimeException. (str "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2"))))
+        (throw (RuntimeException. (str v2-path "object not found in bucket."))))
       snap1)
     {:partkey 0}))
 

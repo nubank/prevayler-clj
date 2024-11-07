@@ -46,18 +46,13 @@
       unmarshal-fn))
 
 (defn- read-snapshot [s3-cli s3-sdk-cli bucket snapshot-path]
-  (if (snapshot-exists? s3-cli bucket snapshot-path)
-    (let [v2-path (snapshot-v2-path snapshot-path)
-          snap1 (read-object s3-sdk-cli bucket snapshot-path unmarshal)]
-      (if (snapshot-exists? s3-cli bucket v2-path)
-        (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
-          (throw (RuntimeException. (str "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2"))))
-        (throw (RuntimeException. (str v2-path "object not found in bucket."))))
-      snap1)
-    {:partkey 0}))
+  (let [v2-path (snapshot-v2-path snapshot-path)]
+    (if (snapshot-exists? s3-cli bucket v2-path)
+      (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)
+      {:partkey 0})))
 
 (defn- save-snapshot! [s3-cli s3-sdk-cli bucket snapshot-path snapshot]
-  (util/aws-invoke s3-cli {:op      :PutObject
+  #_(util/aws-invoke s3-cli {:op      :PutObject
                            :request {:Bucket bucket
                                      :Key    snapshot-path
                                      :Body   (marshal snapshot)}})

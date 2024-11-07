@@ -46,24 +46,12 @@
       unmarshal-fn))
 
 (defn- read-snapshot [s3-cli s3-sdk-cli bucket snapshot-path]
-  (if (snapshot-exists? s3-cli bucket snapshot-path)
-    (let [v2-path (snapshot-v2-path snapshot-path)
-          snap1 (read-object s3-sdk-cli bucket snapshot-path unmarshal)]
-      (try
-        (if (snapshot-exists? s3-cli bucket v2-path)
-          (let [snap2 (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)]
-            (println "Snapshot v1" (if (= snap1 snap2) "IS" "IS NOT") "equal to v2"))
-          (println v2-path "object not found in bucket."))
-        (catch Exception e
-          (.printStackTrace e)))
-      snap1)
-    {:partkey 0}))
+  (let [v2-path (snapshot-v2-path snapshot-path)]
+    (if (snapshot-exists? s3-cli bucket v2-path)
+      (read-object s3-sdk-cli bucket v2-path unmarshal-from-in)
+      {:partkey 0})))
 
-(defn- save-snapshot! [s3-cli s3-sdk-cli bucket snapshot-path snapshot]
-  (util/aws-invoke s3-cli {:op      :PutObject
-                           :request {:Bucket bucket
-                                     :Key    snapshot-path
-                                     :Body   (marshal snapshot)}})
+(defn- save-snapshot! [s3-sdk-cli bucket snapshot-path snapshot]
   (try
     (let [v2-path (snapshot-v2-path snapshot-path)
           temp-file (java.io.File/createTempFile "snapshot" "")] ; We use an intermediary file to easily determine the length of the stream. Otherwise, to determine its length, Amazon's SDK would buffer the entire stream in RAM, defeating our purpose.
@@ -160,7 +148,7 @@
                          (println "Saving snapshot to bucket...")
                          ; Since s3 update is atomic, if saving snapshot fails next prevayler will pick the previous state
                          ; and restore events from the previous partkey
-                         (save-snapshot! s3-client s3-sdk-cli s3-bucket snapshot-path {:state @state-atom
+                         (save-snapshot! s3-sdk-cli s3-bucket snapshot-path {:state @state-atom
                                                                             :partkey (inc @snapshot-index-atom)})
                          (println "Snapshot done.")
                          (swap! snapshot-index-atom inc)
